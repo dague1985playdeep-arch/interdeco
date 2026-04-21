@@ -1,0 +1,130 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: interdeco-postgres
+    environment:
+      POSTGRES_DB: interdeco
+      POSTGRES_USER: interdeco_user
+      POSTGRES_PASSWORD: inter_deco_pass_2024
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Opcional: script de inicialización
+      # - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U interdeco_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - interdeco-network
+
+  # Flask Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: interdeco-app
+    environment:
+      # Base de datos
+      DATABASE_URL: postgresql://interdeco_user:inter_deco_pass_2024@db:5432/interdeco
+      
+      # Meta API
+      META_ACCESS_TOKEN: ${META_ACCESS_TOKEN}
+      INSTAGRAM_BUSINESS_ACCOUNT_ID: ${INSTAGRAM_BUSINESS_ACCOUNT_ID}
+      BUSINESS_PAGE_ID: ${BUSINESS_PAGE_ID}
+      
+      # OpenAI
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      
+      # Webhook
+      VERIFY_TOKEN: INTER_DECO_SECRET_2024
+      WEBHOOK_URL: http://localhost:5000
+      
+      # Flask
+      FLASK_ENV: development
+      FLASK_APP: main.py
+      
+      # Otros
+      ADMIN_API_KEY: inter-deco-secret-2024
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@interdeco.cl}
+    
+    ports:
+      - "5000:5000"
+    
+    volumes:
+      # Para desarrollo - recargar código automáticamente
+      - .:/app
+      - /app/__pycache__
+    
+    depends_on:
+      db:
+        condition: service_healthy
+    
+    command: >
+      sh -c "
+      python init_db.py &&
+      flask run --host=0.0.0.0
+      "
+    
+    networks:
+      - interdeco-network
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Opcional: Redis para caching/sessions
+  redis:
+    image: redis:7-alpine
+    container_name: interdeco-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - interdeco-network
+
+  # Opcional: pgAdmin para gestionar PostgreSQL
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: interdeco-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@interdeco.cl
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+    networks:
+      - interdeco-network
+    profiles:
+      - debug
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  interdeco-network:
+    driver: bridge
+
+# Uso:
+# docker-compose up -d                    # Iniciar servicios
+# docker-compose down                     # Detener servicios
+# docker-compose logs -f app              # Ver logs
+# docker-compose exec db psql -U interdeco_user -d interdeco  # Acceder a DB
+# docker-compose exec app python init_db.py seed  # Crear datos de prueba
