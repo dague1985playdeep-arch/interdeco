@@ -8,14 +8,17 @@ from datetime import datetime
 app = Flask(__name__)
 
 # --- CONFIGURACIÓN ---
+# Las APIs las seguimos tomando de Render por seguridad
 ACCESS_TOKEN = os.getenv('META_ACCESS_TOKEN')
-VERIFY_TOKEN = os.getenv('VERIFY_TOKEN')
 INSTAGRAM_ACCOUNT_ID = os.getenv('INSTAGRAM_BUSINESS_ACCOUNT_ID')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
+# EL TOKEN DE VERIFICACIÓN (Fijo para que no falle en Meta)
+MI_TOKEN_DE_META = "INTER_DECO_SECRET_2024"
+
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# --- BASE DE DATOS ---
+# --- BASE DE DATOS (Memoria de Fernanda) ---
 def init_db():
     conn = sqlite3.connect('interdeco.db')
     cursor = conn.cursor()
@@ -52,21 +55,21 @@ def get_history(user_id):
 def home():
     return "<h1>Inter-Deco AI: Sistema Activo 🚀</h1>", 200
 
-# VERIFICACIÓN (Lo que Meta pide para conectar)
 @app.route('/webhook', methods=['GET'])
 def verify():
+    # Capturamos los datos que envía Meta
     mode = request.args.get("hub.mode") or request.args.get("hub_mode")
     token = request.args.get("hub.verify_token") or request.args.get("hub_verify_token")
     challenge = request.args.get("hub.challenge") or request.args.get("hub_challenge")
 
-    if mode == "subscribe" and token == VERIFY_TOKEN:
-        print(f"✅ Webhook verificado. Enviando challenge: {challenge}")
+    # Validación directa con el token fijo
+    if mode == "subscribe" and token == MI_TOKEN_DE_META:
+        print(f"✅ Webhook verificado con éxito. Challenge: {challenge}")
         return str(challenge), 200
     
-    print(f"❌ Error: El token recibido ({token}) no coincide con el configurado.")
+    print(f"❌ Error: Token recibido ({token}) no coincide con {MI_TOKEN_DE_META}")
     return "Token de verificación inválido", 403
 
-# RECEPCIÓN DE MENSAJES (Lo que Fernanda procesa)
 @app.route('/webhook', methods=['POST'])
 def webhook_receiver():
     data = request.json
@@ -80,14 +83,14 @@ def webhook_receiver():
                         process_message(sender_id, user_text)
     return "EVENT_RECEIVED", 200
 
-# --- LÓGICA DE FERNANDA ---
+# --- LÓGICA DE RESPUESTA ---
 
 def process_message(user_id, text):
     save_history(user_id, "user", text)
     history = get_history(user_id)
     
     instructions = ("Eres Fernanda, asistente de Inter-Deco. Experta en cortinas y diseño. "
-                    "Amable, elegante y servicial.")
+                    "Amable, elegante y servicial. Ayuda al cliente a elegir la mejor opción.")
     
     messages = [{"role": "system", "content": instructions}] + history
     
@@ -110,5 +113,6 @@ def send_instagram_dm(recipient_id, text):
 
 if __name__ == "__main__":
     init_db()
+    # Usamos el puerto dinámico de Render
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
