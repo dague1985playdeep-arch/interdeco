@@ -66,20 +66,13 @@ def verify():
         return challenge, 200
     return "Error de validación", 403
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    data = request.json
-    if data.get("object") == "instagram":
-        for entry in data.get("entry", []):
-            for messaging_event in entry.get("messaging", []):
-                sender_id = messaging_event["sender"]["id"]
-                if "message" in messaging_event:
-                    user_text = messaging_event["message"].get("text")
-                    if user_text:
-                        print(f"📩 Mensaje de {sender_id}: {user_text}")
-                        process_message(sender_id, user_text)
-    return "EVENT_RECEIVED", 200
-
+@app.route('/webhook', methods=['GET'])
+def verify():
+    # Forzamos a que ignore cualquier error de formato de Meta
+    token_sent = request.args.get("hub.verify_token")
+    if token_sent == os.getenv('VERIFY_TOKEN'):
+        return request.args.get("hub.challenge")
+    return "Token incorrecto", 403
 # --- LÓGICA DE RESPUESTA ---
 
 def process_message(user_id, text):
