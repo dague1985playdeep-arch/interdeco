@@ -8,7 +8,6 @@ from datetime import datetime
 app = Flask(__name__)
 
 # --- CONFIGURACIÓN ---
-# Estos valores se configuran en el panel 'Environment' de Render
 ACCESS_TOKEN = os.getenv('META_ACCESS_TOKEN')
 VERIFY_TOKEN = os.getenv('VERIFY_TOKEN')
 INSTAGRAM_ACCOUNT_ID = os.getenv('INSTAGRAM_BUSINESS_ACCOUNT_ID')
@@ -16,7 +15,7 @@ OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# --- BASE DE DATOS (Memoria de Fernanda) ---
+# --- BASE DE DATOS ---
 def init_db():
     conn = sqlite3.connect('interdeco.db')
     cursor = conn.cursor()
@@ -51,38 +50,42 @@ def get_history(user_id):
 
 @app.route('/', methods=['GET'])
 def home():
-    # Esta ruta evita el error 404 al entrar a la URL principal
     return "<h1>Inter-Deco AI: Sistema Activo 🚀</h1>", 200
 
+# UNIFICADO: Solo una función 'verify' para evitar el AssertionError
 @app.route('/webhook', methods=['GET'])
 def verify():
-    # Validación requerida por Meta Developers
     mode = request.args.get("hub.mode")
     token = request.args.get("hub.verify_token")
     challenge = request.args.get("hub.challenge")
 
     if mode == "subscribe" and token == VERIFY_TOKEN:
         print("✅ Webhook verificado correctamente.")
-        return challenge, 200
+        return str(challenge), 200
+    
+    print("❌ Error de validación: Token no coincide.")
     return "Error de validación", 403
 
-@app.route('/webhook', methods=['GET'])
-def verify():
-    # Forzamos a que ignore cualquier error de formato de Meta
-    token_sent = request.args.get("hub.verify_token")
-    if token_sent == os.getenv('VERIFY_TOKEN'):
-        return request.args.get("hub.challenge")
-    return "Token incorrecto", 403
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    data = request.json
+    if data.get("object") == "instagram":
+        for entry in data.get("entry", []):
+            for messaging_event in entry.get("messaging", []):
+                sender_id = messaging_event["sender"]["id"]
+                if "message" in messaging_event:
+                    user_text = messaging_event["message"].get("text")
+                    if user_text:
+                        print(f"📩 Mensaje de {sender_id}: {user_text}")
+                        process_message(sender_id, user_text)
+    return "EVENT_RECEIVED", 200
+
 # --- LÓGICA DE RESPUESTA ---
 
 def process_message(user_id, text):
-    # Guardar lo que dijo el usuario
     save_history(user_id, "user", text)
-    
-    # Obtener historial para darle contexto a la IA
     history = get_history(user_id)
     
-    # Fernanda genera respuesta
     instructions = ("Eres Fernanda, asistente de Inter-Deco. Experta en cortinas y diseño. "
                     "Amable, elegante y servicial. Siempre intenta ayudar al cliente a elegir "
                     "la mejor opción para sus ventanas.")
@@ -95,8 +98,6 @@ def process_message(user_id, text):
             messages=messages
         )
         ai_reply = response.choices[0].message.content
-        
-        # Guardar y enviar
         save_history(user_id, "assistant", ai_reply)
         send_instagram_dm(user_id, ai_reply)
     except Exception as e:
@@ -110,4 +111,6 @@ def send_instagram_dm(recipient_id, text):
 
 if __name__ == "__main__":
     init_db()
-    app.run(host='0.0.0.0', port=5000)
+    # Importante para Render: usar el puerto de la variable de entorno
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
