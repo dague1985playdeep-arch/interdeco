@@ -52,22 +52,23 @@ def get_history(user_id):
 def home():
     return "<h1>Inter-Deco AI: Sistema Activo 🚀</h1>", 200
 
-# UNIFICADO: Solo una función 'verify' para evitar el AssertionError
+# VERIFICACIÓN (Lo que Meta pide para conectar)
 @app.route('/webhook', methods=['GET'])
 def verify():
-    mode = request.args.get("hub.mode")
-    token = request.args.get("hub.verify_token")
-    challenge = request.args.get("hub.challenge")
+    mode = request.args.get("hub.mode") or request.args.get("hub_mode")
+    token = request.args.get("hub.verify_token") or request.args.get("hub_verify_token")
+    challenge = request.args.get("hub.challenge") or request.args.get("hub_challenge")
 
     if mode == "subscribe" and token == VERIFY_TOKEN:
-        print("✅ Webhook verificado correctamente.")
+        print(f"✅ Webhook verificado. Enviando challenge: {challenge}")
         return str(challenge), 200
     
-    print("❌ Error de validación: Token no coincide.")
-    return "Error de validación", 403
+    print(f"❌ Error: El token recibido ({token}) no coincide con el configurado.")
+    return "Token de verificación inválido", 403
 
+# RECEPCIÓN DE MENSAJES (Lo que Fernanda procesa)
 @app.route('/webhook', methods=['POST'])
-def webhook():
+def webhook_receiver():
     data = request.json
     if data.get("object") == "instagram":
         for entry in data.get("entry", []):
@@ -76,19 +77,17 @@ def webhook():
                 if "message" in messaging_event:
                     user_text = messaging_event["message"].get("text")
                     if user_text:
-                        print(f"📩 Mensaje de {sender_id}: {user_text}")
                         process_message(sender_id, user_text)
     return "EVENT_RECEIVED", 200
 
-# --- LÓGICA DE RESPUESTA ---
+# --- LÓGICA DE FERNANDA ---
 
 def process_message(user_id, text):
     save_history(user_id, "user", text)
     history = get_history(user_id)
     
     instructions = ("Eres Fernanda, asistente de Inter-Deco. Experta en cortinas y diseño. "
-                    "Amable, elegante y servicial. Siempre intenta ayudar al cliente a elegir "
-                    "la mejor opción para sus ventanas.")
+                    "Amable, elegante y servicial.")
     
     messages = [{"role": "system", "content": instructions}] + history
     
@@ -101,7 +100,7 @@ def process_message(user_id, text):
         save_history(user_id, "assistant", ai_reply)
         send_instagram_dm(user_id, ai_reply)
     except Exception as e:
-        print(f"❌ Error en OpenAI: {e}")
+        print(f"❌ Error OpenAI: {e}")
 
 def send_instagram_dm(recipient_id, text):
     url = f"https://graph.facebook.com/v19.0/{INSTAGRAM_ACCOUNT_ID}/messages"
@@ -111,6 +110,5 @@ def send_instagram_dm(recipient_id, text):
 
 if __name__ == "__main__":
     init_db()
-    # Importante para Render: usar el puerto de la variable de entorno
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
